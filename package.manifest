@@ -1,0 +1,9 @@
+﻿{
+  "name": "TinyMCE paragraph before and after inserted macro remover",
+  "version": "1.0.0",
+  "allowPackageTelemetry": false,
+  "bundleOptions": "None",
+  "javascript": [
+    "/App_Plugins/TinyMceParagraphForMacroRemover/tinymce.paragraphformacro.remover.js"
+  ]
+}

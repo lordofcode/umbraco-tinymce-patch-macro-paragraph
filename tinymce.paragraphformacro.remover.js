@@ -1,8 +1,14 @@
-﻿class TinyMcePatchMacroFromSurroundingParagraphs {
+﻿// Author:      ing. Dirk Hornstra
+// Date:        2025-02-13
+// Version:     1.0
+// Description: Inserting a macro in tinyMCE in Umbraco causes the <div>..</div> to become a child of <p>..</p>
+//              Which is invalid and resolved by adding an empty paragraph before and after the inserted macro (HTML)
+//              This script removes the surrounding <p>..</p> tags
+// Disclaimer:  Tested with some cases, so use at your own risk. Code may be used and modified for tinetuning for your project(s).
+class TinyMcePatchMacroFromSurroundingParagraphs {
     constructor() {
         this.startTagOfMacro = '<div class="umb-macro-holder';
         this.endTagOfMacro = '</ins></div>';
-        this.surroundingParagraph = '<p> </p>';
         this.startParagraph = '<p>';
         this.endParagraph = '</p>';
         this.macroPreFix = '';
@@ -27,11 +33,13 @@
         }
         // first: get the position where the macro is inserted (start)
         var insertStartPosition = this.ModifiedContent.indexOf(this.macroPreFix) + this.macroPreFix.length;
-        // second: get the position where the insertion stops
+        // second: get the position where the macro starts
+        var macroStartPosition = insertStartPosition + this.ModifiedContent.substring(insertStartPosition).indexOf(this.startTagOfMacro);
+        // third: get the position where the insertion stops
         var insertEndPosition = this.ModifiedContent.indexOf(this.macroPostFix);
-        // third: get the position of the preceding <p> tag
+        // fourth: get the position of the preceding <p> tag
         var paragraphPrePosition = this.getParagraphPosition(true, insertStartPosition - this.macroPreFix.length);
-        // fourth: get the position of the appended <p> tag
+        // fifth: get the position of the appended </p> tag
         var paragraphPostPosition = this.getParagraphPosition(false, insertEndPosition + this.macroPostFix.length);
 
         // patch the content. 
@@ -39,7 +47,7 @@
         if (paragraphPrePosition > 0) {
             patchedContent = this.ModifiedContent.substring(0, paragraphPrePosition);
         }
-        patchedContent += this.ModifiedContent.substring(insertStartPosition + this.endParagraph.length, insertEndPosition);
+        patchedContent += this.ModifiedContent.substring(macroStartPosition, insertEndPosition);
         if (paragraphPostPosition < this.ModifiedContent.length) {
             patchedContent += this.ModifiedContent.substring(paragraphPostPosition);
         }
@@ -69,42 +77,54 @@
     isMacro(content) { return content.length >= (this.startTagOfMacro.length + this.endTagOfMacro.length) && content.substring(0, this.startTagOfMacro.length) == this.startTagOfMacro && content.substring(content.length - this.endTagOfMacro.length) == this.endTagOfMacro && content.indexOf(this.startTagOfMacro) == content.lastIndexOf(this.startTagOfMacro); }
 }
 class TinyMcePatchMacroMonitor {
-    static hasConnectedSetup = false;
-    static patcher = new TinyMcePatchMacroFromSurroundingParagraphs();
-    static MonitorTinyMceEditors() {
+    constructor() {
+        this.hasConnectedSetup = false;
+        this.patcher = new TinyMcePatchMacroFromSurroundingParagraphs();
+        this.useTimeout = true;
+    }
+    MonitorTinyMceEditors() {
         try {
             if (!tinymce || this.hasConnectedSetup) {
-                return;
+                return "no tinymce or already connected";
             }
             this.hasConnectedSetup = true;
             tinymce.on('SetupEditor', function (event) {
-                TinyMcePatchMacroMonitor.MonitorBeforeSetContentEvent(event.editor);
+                tinyMcePatchMacroMonitor.MonitorBeforeSetContentEvent(event.editor);
             });
         } catch (e) {
             /* this is a patch-script. so we don't want to break other things. if something goes wrong here, suppress the error. */
         }
     }
-    static MonitorBeforeSetContentEvent(editor) {
-        editor.on('BeforeSetContent', (e) => {
-            var content = this.patcher.handleBeforeSetContent(e.content);
+    MonitorBeforeSetContentEvent(editor) {
+        editor.on('BeforeSetContent', function (e) {
+            var content = tinyMcePatchMacroMonitor.patcher.handleBeforeSetContent(e.content);
             if (content == e.content) {
                 return;
             }
             e.content = content;
-            tinymce.activeEditor.on('SetContent', (e) => {
-                setTimeout(function () {
-                    var currentContent = tinymce.activeEditor.getContent();
-                    TinyMcePatchMacroMonitor.patcher.setModifiedContent(currentContent);
-                    var patchedContent = TinyMcePatchMacroMonitor.patcher.getPatchedContent();
-                    if (patchedContent == currentContent) { return; }
-                    tinymce.activeEditor.setContent(patchedContent);
-                }, 1000);
+            tinymce.activeEditor.on('SetContent', function (e) {
+                if (tinyMcePatchMacroMonitor.useTimeout) {
+                    setTimeout(function () {
+                        tinyMcePatchMacroMonitor.HandleContentPatching();
+                    }, 1000);
+                }
+                else {
+                    tinyMcePatchMacroMonitor.HandleContentPatching();
+                }
             });            
         });
     }
+    HandleContentPatching() {
+        var currentContent = tinymce.activeEditor.getContent();
+        tinyMcePatchMacroMonitor.patcher.setModifiedContent(currentContent);
+        var patchedContent = tinyMcePatchMacroMonitor.patcher.getPatchedContent();
+        if (patchedContent == currentContent) { return; }
+        tinymce.activeEditor.setContent(patchedContent);
+    }
 }
+var tinyMcePatchMacroMonitor = new TinyMcePatchMacroMonitor();
 app.run(function (eventsService) {
     eventsService.on("editorState.changed", function (event, args) {
-        TinyMcePatchMacroMonitor.MonitorTinyMceEditors();
+        tinyMcePatchMacroMonitor.MonitorTinyMceEditors();
     });
 });
